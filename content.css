@@ -1,0 +1,35 @@
+#vtv-overlay-root {
+  position: fixed;
+  left: 0; top: 0; width: 0; height: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+.vtv-btn {
+  position: fixed;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(20, 20, 20, 0.85);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  opacity: 0.85;
+  transition: opacity .15s, background .15s;
+  white-space: nowrap;
+  user-select: none;
+}
+.vtv-btn:hover { opacity: 1; background: #e53935; }
+.vtv-btn svg { width: 14px; height: 14px; fill: currentColor; }
+.vtv-btn.vtv-busy { background: #1e88e5; cursor: progress; }
+.vtv-btn.vtv-ok { background: #43a047; }
+.vtv-btn.vtv-err { background: #6d4c41; }
+.vtv-btn .vtv-info { font-weight: 400; opacity: .8; font-size: 11px; }

@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Video Tải Về",
+  "version": "1.0.0",
+  "description": "Phát hiện video trên trang hiện tại và phủ nút Tải về lên mỗi video (hỗ trợ MP4/WebM trực tiếp và HLS .m3u8).",
+  "permissions": ["downloads", "webRequest", "webNavigation", "offscreen", "storage", "tabs", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": true,
+      "run_at": "document_idle",
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "action": {
+    "default_title": "Video Tải Về",
+    "default_popup": "popup.html"
+  },
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" }
+}
