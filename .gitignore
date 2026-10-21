@@ -1,3 +1,4 @@
 profile/
 downloads/
 __pycache__/
+*.zip
