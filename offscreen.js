@@ -44,8 +44,62 @@ function makeReporter(job) {
   return (extra) => chrome.runtime.sendMessage({ type: 'hlsProgress', key: job.key, tabId: job.tabId, frameId: job.frameId, ruleId: job.ruleId, ...extra }).catch(() => {});
 }
 
-async function deliver(data, mime, filename) {
-  const blob = new Blob([data], { type: mime });
+// ---- Ghi thẳng vào thư mục người dùng đã chọn (File System Access) qua Port 'vtv-sink' của content script ----
+const sinkPorts = new Map();  // tabId -> port
+const sinkAcks = new Map();   // token -> resolve
+const SINK_CHUNK = 2 * 1024 * 1024;
+
+function blobToB64(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(blob);
+  });
+}
+
+function sinkRpc(port, msg) {
+  return new Promise((resolve, reject) => {
+    const token = Math.random().toString(36).slice(2);
+    sinkAcks.set(token, (m) => m.error ? reject(new Error(m.error)) : resolve(m));
+    try { port.postMessage({ ...msg, token }); } catch (e) { sinkAcks.delete(token); reject(new Error('Mất kết nối với trang')); }
+  });
+}
+
+function sinkPortFor(job) {
+  const port = sinkPorts.get(job.tabId);
+  if (!port) throw new Error('Mất kết nối thư mục lưu (trang đã đóng hoặc đổi địa chỉ?)');
+  return port;
+}
+
+// Ghi file theo luồng: open → chunk... → close. `source` là Blob hoặc async iterator các Uint8Array.
+async function sinkWrite(job, filename, source, report) {
+  const port = sinkPortFor(job);
+  const fileId = Math.random().toString(36).slice(2);
+  await sinkRpc(port, { type: 'open', fileId, name: filename });
+  try {
+    if (source instanceof Blob) {
+      for (let off = 0; off < source.size; off += SINK_CHUNK) {
+        const b64 = await blobToB64(source.slice(off, Math.min(off + SINK_CHUNK, source.size)));
+        await sinkRpc(port, { type: 'chunk', fileId, b64 });
+        if (report) report({ text: 'Đang ghi ' + Math.round(Math.min(off + SINK_CHUNK, source.size) * 100 / source.size) + '%' });
+      }
+    } else {
+      for await (const part of source) {
+        const b64 = await blobToB64(new Blob([part]));
+        await sinkRpc(port, { type: 'chunk', fileId, b64 });
+      }
+    }
+    await sinkRpc(port, { type: 'close', fileId });
+  } catch (e) {
+    try { await sinkRpc(port, { type: 'abort', fileId }); } catch (x) { /* ignore */ }
+    throw e;
+  }
+}
+
+async function deliver(job, data, mime, filename) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+  if (job && job.sink === 'fs') { await sinkWrite(job, filename, blob, makeReporter(job)); return; }
   const blobUrl = URL.createObjectURL(blob);
   const res = await chrome.runtime.sendMessage({ type: 'hlsBlobReady', blobUrl, filename });
   if (res && res.error) throw new Error(res.error);
@@ -220,8 +274,8 @@ async function downloadHls(job) {
     const raw = concat(parts);
     const mp4 = await remuxToMp4(raw, isFmp4 ? 'in.mp4' : 'in.ts', report);
     const name = job.filename || 'video';
-    if (mp4) await deliver(mp4, 'video/mp4', name + '.mp4');
-    else await deliver(raw, isFmp4 ? 'video/mp4' : 'video/mp2t', name + (isFmp4 ? '.mp4' : '.ts'));
+    if (mp4) await deliver(job, mp4, 'video/mp4', name + '.mp4');
+    else await deliver(job, raw, isFmp4 ? 'video/mp4' : 'video/mp2t', name + (isFmp4 ? '.mp4' : '.ts'));
     report({ done: true, pct: 100 });
   } catch (e) {
     report({ error: (e && e.message) || String(e) });
@@ -353,16 +407,16 @@ async function downloadDash(job) {
     if (vData && aData) {
       let out = null;
       try { out = await muxAV(vData, aData, 'v.' + vExt, 'a.' + aExt, report); } catch (e) { console.warn('mux fail', e); }
-      if (out) await deliver(out, 'video/mp4', name + '.mp4');
+      if (out) await deliver(job, out, 'video/mp4', name + '.mp4');
       else {
-        await deliver(vData, vMime, name + '.video.' + vExt);
-        await deliver(aData, aMime, name + '.audio.' + aExt);
+        await deliver(job, vData, vMime, name + '.video.' + vExt);
+        await deliver(job, aData, aMime, name + '.audio.' + aExt);
       }
     } else if (vData) {
       const out = await remuxToMp4(vData, 'v.' + vExt, report);
-      if (out) await deliver(out, 'video/mp4', name + '.mp4'); else await deliver(vData, vMime, name + '.' + vExt);
+      if (out) await deliver(job, out, 'video/mp4', name + '.mp4'); else await deliver(job, vData, vMime, name + '.' + vExt);
     } else {
-      await deliver(aData, aMime, name + '.' + aExt);
+      await deliver(job, aData, aMime, name + '.' + aExt);
     }
     report({ done: true, pct: 100 });
   } catch (e) {
@@ -379,15 +433,34 @@ async function downloadFile(job) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const total = parseInt(r.headers.get('content-length') || '0', 10);
     const reader = r.body.getReader();
-    const chunks = []; let got = 0, lastPct = -1;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value); got += value.byteLength;
+    let got = 0, lastPct = -1;
+    const tick = (n) => {
+      got += n;
       const pct = total ? Math.floor(got * 100 / total) : Math.floor(got / 1048576);
       if (pct !== lastPct) { lastPct = pct; report(total ? { pct } : { pct: pct + ' MB' }); }
+    };
+    if (job.sink === 'fs') {
+      // Ghi thẳng ra thư mục theo luồng, gom ~2 MB mỗi khúc, không giữ cả file trong RAM.
+      async function* stream() {
+        let buf = [], size = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf.push(value); size += value.byteLength; tick(value.byteLength);
+          if (size >= SINK_CHUNK) { yield concat(buf); buf = []; size = 0; }
+        }
+        if (size) yield concat(buf);
+      }
+      await sinkWrite(job, job.filename, stream(), null);
+    } else {
+      const chunks = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value); tick(value.byteLength);
+      }
+      await deliver(job, new Blob(chunks), job.mime || 'video/mp4', job.filename);
     }
-    await deliver(new Blob(chunks), job.mime || 'video/mp4', job.filename);
     report({ done: true, pct: 100 });
   } catch (e) {
     report({ error: (e && e.message) || String(e) });
@@ -416,16 +489,16 @@ async function assembleMse(job) {
     if (v && a) {
       let out = null;
       try { out = await muxAV(v.data, a.data, 'v.' + extFor(v.mime), 'a.' + extFor(a.mime), report); } catch (e) { console.warn('mux fail', e); }
-      if (out) await deliver(out, 'video/mp4', name + '.mp4');
+      if (out) await deliver(job, out, 'video/mp4', name + '.mp4');
       else {
-        await deliver(v.data, v.mime.split(';')[0], name + '.video.' + extFor(v.mime));
-        await deliver(a.data, a.mime.split(';')[0], name + '.audio.' + extFor(a.mime));
+        await deliver(job, v.data, v.mime.split(';')[0], name + '.video.' + extFor(v.mime));
+        await deliver(job, a.data, a.mime.split(';')[0], name + '.audio.' + extFor(a.mime));
       }
     } else {
       const t = v || a;
       const out = await remuxToMp4(t.data, 'in.' + extFor(t.mime), report);
-      if (out) await deliver(out, 'video/mp4', name + '.mp4');
-      else await deliver(t.data, t.mime.split(';')[0], name + '.' + extFor(t.mime));
+      if (out) await deliver(job, out, 'video/mp4', name + '.mp4');
+      else await deliver(job, t.data, t.mime.split(';')[0], name + '.' + extFor(t.mime));
     }
     report({ done: true, pct: 100 });
   } catch (e) {
@@ -434,6 +507,15 @@ async function assembleMse(job) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'vtv-sink') {
+    const tabId = port.sender && port.sender.tab ? port.sender.tab.id : null;
+    sinkPorts.set(tabId, port);
+    port.onMessage.addListener((m) => {
+      if (m.type === 'ack') { const r = sinkAcks.get(m.token); if (r) { sinkAcks.delete(m.token); r(m); } }
+    });
+    port.onDisconnect.addListener(() => { if (sinkPorts.get(tabId) === port) sinkPorts.delete(tabId); });
+    return;
+  }
   if (port.name !== 'vtv-mse') return;
   const job = { key: null, filename: 'video', buffers: [], tabId: port.sender && port.sender.tab ? port.sender.tab.id : null, frameId: port.sender ? port.sender.frameId : null };
   let cur = null;

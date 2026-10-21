@@ -134,7 +134,7 @@ async function handle(msg, sender) {
         // Bỏ qua bước này nếu origin đã biết là chặn hotlink, hoặc đang có rule Referer cho origin đó (thăm dò sẽ sai).
         const origin = originOf(msg.url);
         let plain = null;
-        if (!needsReferer.has(origin) && !refererActive(origin)) {
+        if (msg.sink !== 'fs' && !needsReferer.has(origin) && !refererActive(origin)) {
           try { plain = await probe(msg.url); } catch (e) { plain = null; }
         }
         if (plain) {
@@ -151,7 +151,7 @@ async function handle(msg, sender) {
         const ext = msg.ext || EXT_BY_TYPE[probed.ctype] || 'mp4';
         await ensureOffscreen();
         chrome.runtime.sendMessage({ type: 'offscreenFetch', url: msg.url, filename: (msg.filename || 'video') + '.' + ext, mime: probed.ctype || 'video/mp4',
-          key: msg.key, tabId: sender.tab ? sender.tab.id : msg.tabId, frameId: sender.frameId, ruleId }).catch(() => {});
+          key: msg.key, tabId: sender.tab ? sender.tab.id : msg.tabId, frameId: sender.frameId, ruleId, sink: msg.sink }).catch(() => {});
         sendResponse({ ok: true, via: 'fetch' });
       } else if (msg.type === 'ensureOffscreen') {
         await ensureOffscreen();
@@ -161,7 +161,7 @@ async function handle(msg, sender) {
         const tabId = sender.tab ? sender.tab.id : msg.tabId;
         const pageUrl = msg.pageUrl || (sender.tab && sender.tab.url);
         const ruleId = await addRefererRule(msg.url, pageUrl);
-        chrome.runtime.sendMessage({ type: 'offscreenDash', url: msg.url, filename: msg.filename, key: msg.key, tabId, frameId: sender.frameId, ruleId }).catch(() => {});
+        chrome.runtime.sendMessage({ type: 'offscreenDash', url: msg.url, filename: msg.filename, key: msg.key, tabId, frameId: sender.frameId, ruleId, sink: msg.sink }).catch(() => {});
         sendResponse({ ok: true });
       } else if (msg.type === 'downloadHls') {
         await ensureOffscreen();
@@ -169,7 +169,7 @@ async function handle(msg, sender) {
         const frameId = sender.frameId;
         const pageUrl = msg.pageUrl || (sender.tab && sender.tab.url);
         const ruleId = await addRefererRule(msg.url, pageUrl);
-        chrome.runtime.sendMessage({ type: 'offscreenHls', url: msg.url, filename: msg.filename, key: msg.key, tabId, frameId, ruleId }).catch(() => {});
+        chrome.runtime.sendMessage({ type: 'offscreenHls', url: msg.url, filename: msg.filename, key: msg.key, tabId, frameId, ruleId, sink: msg.sink }).catch(() => {});
         sendResponse({ ok: true });
       } else if (msg.type === 'hlsProgress') {
         if ((msg.done || msg.error) && msg.ruleId != null) removeRule(msg.ruleId, 5000);
@@ -287,12 +287,12 @@ async function runBatchItem(item, idx) {
   } else {
     target.kind = kindOfUrl(item.url).kind;
   }
-  const filename = batch.folder + '/' + item.name;
+  const filename = batch.sink === 'fs' ? item.name : batch.folder + '/' + item.name;
   const sender = { tab: { id: batch.tabId, url: target.pageUrl }, frameId: 0 };
   const type = target.kind === 'hls' ? 'downloadHls' : target.kind === 'dash' ? 'downloadDash' : 'download';
   const ext = target.kind === 'direct' ? kindOfUrl(target.url).ext : '';
   const waiter = waitKey(key, 60 * 60 * 1000);
-  const res = await handle({ type, url: target.url, filename, ext, key, pageUrl: target.pageUrl, tabId: batch.tabId }, sender);
+  const res = await handle({ type, url: target.url, filename, ext, key, pageUrl: target.pageUrl, tabId: batch.tabId, sink: batch.sink }, sender);
   if (res && res.error) { batchWaiters.delete(key); throw new Error(res.error); }
   if (type === 'download' && res.via === 'direct') {
     batchWaiters.delete(key);
@@ -308,7 +308,7 @@ async function batchStart(msg, sender) {
   if (batch && !batch.finished) return { error: 'Đang có một đợt tải khác, hãy dừng trước.' };
   if (!msg.items || !msg.items.length) return { error: 'Không có tập nào' };
   batch = { id: Date.now().toString(36), items: msg.items, folder: (msg.folder || 'video').replace(/[\\/:*?"<>|]+/g, '_'), pageUrl: msg.pageUrl,
-    tabId: sender.tab ? sender.tab.id : msg.tabId, done: 0, ok: 0, failed: [], cancelled: false, finished: false };
+    tabId: sender.tab ? sender.tab.id : msg.tabId, sink: msg.sink || null, done: 0, ok: 0, failed: [], cancelled: false, finished: false };
   (async () => {
     for (let i = 0; i < batch.items.length; i++) {
       if (batch.cancelled) break;

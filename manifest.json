@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Video Tải Về",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Phát hiện video trên trang hiện tại và phủ nút Tải về lên mỗi video (MP4/WebM, HLS, DASH, ghi MediaSource, ghép bằng ffmpeg.wasm).",
   "permissions": ["downloads", "webRequest", "webNavigation", "offscreen", "storage", "tabs", "activeTab", "declarativeNetRequest"],
   "host_permissions": ["<all_urls>"],

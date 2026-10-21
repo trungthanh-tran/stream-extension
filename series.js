@@ -183,6 +183,40 @@
     return b[0] || null;
   }
 
+  // ---------------- Ghi file vào thư mục đã chọn (nhận dữ liệu từ offscreen qua Port) ----------------
+  let dirHandle = null, sinkPort = null;
+  function ensureSinkPort() {
+    if (sinkPort) return;
+    sinkPort = chrome.runtime.connect({ name: 'vtv-sink' });
+    const files = new Map(); // fileId -> writable
+    let chain = Promise.resolve();
+    const ack = (m, error) => { try { sinkPort.postMessage({ type: 'ack', token: m.token, error }); } catch (e) { /* ignore */ } };
+    sinkPort.onMessage.addListener((m) => {
+      chain = chain.then(async () => {
+        try {
+          if (m.type === 'open') {
+            if (!dirHandle) throw new Error('Chưa chọn thư mục');
+            const h = await dirHandle.getFileHandle(sanitize(m.name), { create: true });
+            files.set(m.fileId, await h.createWritable());
+          } else if (m.type === 'chunk') {
+            const w = files.get(m.fileId); if (!w) throw new Error('File chưa mở');
+            const bin = atob(m.b64); const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            await w.write(bytes);
+          } else if (m.type === 'close') {
+            const w = files.get(m.fileId); files.delete(m.fileId);
+            if (w) await w.close();
+          } else if (m.type === 'abort') {
+            const w = files.get(m.fileId); files.delete(m.fileId);
+            if (w) { try { await w.abort(); } catch (e) { /* ignore */ } }
+          }
+          ack(m);
+        } catch (e) { ack(m, (e && e.message) || String(e)); }
+      });
+    });
+    sinkPort.onDisconnect.addListener(() => { sinkPort = null; });
+  }
+
   // ---------------- Giao diện gợi ý ----------------
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -233,7 +267,7 @@
       label.title = e.url;
       const st = el('span', 'vtv-series-item-st', '');
       const b = el('button', 'vtv-series-item-btn', 'T\u1ea3i');
-      b.addEventListener('click', () => start([e]));
+      b.addEventListener('click', () => start([e], false));
       r.appendChild(label); r.appendChild(st); r.appendChild(b);
       list.appendChild(r);
       rows.set(e.num, { st, b });
@@ -241,13 +275,29 @@
     panel.appendChild(list);
     panel.__status = status; panel.__btn = btn; panel.__rows = rows;
 
-    async function start(eps) {
+    async function start(eps, pickFolder) {
       if (running) return;
+      let sink = null;
+      if (pickFolder && typeof window.showDirectoryPicker === 'function') {
+        // Ch\u1ecdn th\u01b0 m\u1ee5c m\u1ed9t l\u1ea7n cho c\u1ea3 b\u1ed9 (File System Access). Ph\u1ea3i g\u1ecdi ngay trong c\u1eed ch\u1ec9 b\u1ea5m chu\u1ed9t.
+        try {
+          let testOpfs = false;
+          try { testOpfs = localStorage.getItem('vtvTestOpfs') === '1'; } catch (e) { /* ignore */ }
+          dirHandle = testOpfs ? await navigator.storage.getDirectory() // móc để test tự động, cùng API với thư mục thật
+            : await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' });
+          sink = 'fs';
+          await chrome.runtime.sendMessage({ type: 'ensureOffscreen' }); // offscreen phải có trước khi mở cổng
+          ensureSinkPort();
+        } catch (e) {
+          if (e && e.name === 'AbortError') { status.textContent = '\u0110\u00e3 hu\u1ef7 ch\u1ecdn th\u01b0 m\u1ee5c.'; return; }
+          status.textContent = 'Kh\u00f4ng ch\u1ecdn \u0111\u01b0\u1ee3c th\u01b0 m\u1ee5c, d\u00f9ng c\u00e1ch t\u1ea3i th\u01b0\u1eddng.';
+        }
+      }
       running = true;
       btn.textContent = 'D\u1eebng';
-      status.textContent = 'B\u1eaft \u0111\u1ea7u\u2026';
+      status.textContent = sink ? 'L\u01b0u v\u00e0o th\u01b0 m\u1ee5c "' + dirHandle.name + '". \u0110\u1eebng \u0111\u00f3ng hay r\u1eddi trang khi \u0111ang t\u1ea3i.' : 'B\u1eaft \u0111\u1ea7u\u2026';
       for (const e of eps) { const r = rows.get(e.num); if (r) { r.st.textContent = '\u0111\u1ee3i'; r.st.className = 'vtv-series-item-st'; } }
-      const res = await chrome.runtime.sendMessage({ type: 'batchStart', folder: seriesTitle(), pageUrl: location.href, items: eps.map(itemOf) });
+      const res = await chrome.runtime.sendMessage({ type: 'batchStart', folder: seriesTitle(), pageUrl: location.href, items: eps.map(itemOf), sink });
       if (res && res.error) { status.textContent = res.error; running = false; btn.textContent = 'T\u1ea3i c\u1ea3 b\u1ed9'; }
     }
 
@@ -256,7 +306,7 @@
       const f = parseInt(from.value, 10), t = parseInt(to.value, 10);
       const eps = series.eps.filter(e => e.num >= Math.min(f, t) && e.num <= Math.max(f, t));
       if (!eps.length) { status.textContent = 'Kho\u1ea3ng t\u1eadp kh\u00f4ng h\u1ee3p l\u1ec7.'; return; }
-      start(eps);
+      start(eps, true);
     });
     (document.body || document.documentElement).appendChild(panel);
   }

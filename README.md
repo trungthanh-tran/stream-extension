@@ -14,6 +14,7 @@ Extension Chrome (Manifest V3) phát hiện video trên trang hiện tại và p
   - ≥3 link cùng mẫu URL chỉ khác một số (và chứa trang hiện tại hoặc nhãn tăng dần).
   - ≥3 link có nhãn kiểu tập: 第01集, Tập 1, Episode 3, EP03, E03, hoặc số thuần trong vùng có class/id gợi ý danh sách tập.
   Với link trang tập, extension mở từng tập ở tab ẩn, lấy link video rồi tải, xong đóng tab. Tải tuần tự từng tập, có nút Dừng.
+  Bấm **Tải cả bộ** sẽ hỏi chọn **một thư mục** (File System Access API), rồi ghi thẳng từng tập vào đó (`Tap 01.mp4`, `Tap 02.mp4`...), không qua hộp thoại Save As của Chrome dù bật "Hỏi nơi lưu mỗi file". Dữ liệu được ghi theo luồng từng khúc 2 MB nên không giữ cả file trong RAM. Giữ nguyên tab trong lúc tải vì quyền ghi thư mục chỉ sống trong trang đó. Nút Tải lẻ từng tập vẫn dùng cơ chế tải thường của Chrome.
 - Popup (icon extension): liệt kê video trên trang + URL media bắt được qua mạng, bấm Tải về / Ghi từng cái.
 - Nếu ffmpeg.wasm lỗi, extension tự lùi về file gốc (.ts, hoặc 2 file video/audio rời).
 
