@@ -33,3 +33,6 @@
 .vtv-btn.vtv-ok { background: #43a047; }
 .vtv-btn.vtv-err { background: #6d4c41; }
 .vtv-btn .vtv-info { font-weight: 400; opacity: .8; font-size: 11px; }
+.vtv-btn.vtv-rec { background: rgba(120, 20, 20, 0.85); }
+.vtv-btn.vtv-rec:hover { background: #c62828; }
+.vtv-btn.vtv-rec svg { fill: #ff5252; }

@@ -54,11 +54,21 @@ async function main() {
   const cap = await chrome.runtime.sendMessage({ type: 'getCapturedMedia', tabId: tab.id });
   const media = ((cap && cap.list) || []).slice().reverse();
 
-  const s1 = section('Video trên trang', domVideos, v => row(
-    v.title || 'video',
-    [v.w && v.h ? v.w + '×' + v.h : '', fmtDur(v.duration), v.src === 'blob:' ? 'blob/stream' : v.src].filter(Boolean).join(' · '),
-    () => chrome.tabs.sendMessage(tab.id, { type: 'clickVideo', key: v.key }, { frameId: v.frameId })
-  ));
+  const s1 = section('Video trên trang', domVideos, v => {
+    const li = row(
+      v.title || 'video',
+      [v.w && v.h ? v.w + '×' + v.h : '', fmtDur(v.duration), v.src === 'blob:' ? 'blob/stream' : v.src].filter(Boolean).join(' · '),
+      () => chrome.tabs.sendMessage(tab.id, { type: 'clickVideo', key: v.key }, { frameId: v.frameId })
+    );
+    if (v.mseBytes) {
+      const b = document.createElement('button'); b.className = 'rec';
+      b.textContent = 'Ghi ' + (v.mseBytes / 1048576).toFixed(1) + ' MB';
+      b.title = 'Lưu phần video đã phát (ghi từ MediaSource)';
+      b.addEventListener('click', () => chrome.tabs.sendMessage(tab.id, { type: 'recVideo', key: v.key }, { frameId: v.frameId }));
+      li.appendChild(b);
+    }
+    return li;
+  });
   const s2 = section('Media bắt được qua mạng', media.filter(m => m.kind !== 'dash'), m => row(
     nameFromUrl(m.url),
     (m.kind === 'hls' ? 'HLS · ' : '') + m.url,

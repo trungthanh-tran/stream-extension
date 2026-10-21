@@ -89,12 +89,12 @@ async function probe(url) {
   try {
     r = await fetch(url, { method: 'GET', headers: { Range: 'bytes=0-1' }, credentials: 'include', redirect: 'follow' });
   } catch (e) {
-    throw new Error('Khong ket noi duoc toi server video');
+    throw new Error('Không kết nối được tới server video');
   }
   const ctype = (r.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
   try { await r.body?.cancel(); } catch (e) { /* ignore */ }
-  if (!r.ok && r.status !== 206) throw new Error('Server tu choi (HTTP ' + r.status + ')');
-  if (/^text\/html|application\/xhtml/.test(ctype)) throw new Error('Server tra ve trang HTML thay vi video (chan hotlink/can dang nhap)');
+  if (!r.ok && r.status !== 206) throw new Error('Server từ chối (HTTP ' + r.status + ')');
+  if (/^text\/html|application\/xhtml/.test(ctype)) throw new Error('Server trả về trang HTML thay vì video (chặn hotlink/cần đăng nhập)');
   return { ctype, finalUrl: r.url || url };
 }
 
@@ -105,7 +105,7 @@ async function ensureOffscreen() {
     offscreenCreating = chrome.offscreen.createDocument({
       url: 'offscreen.html',
       reasons: ['BLOBS'],
-      justification: 'Gop cac doan HLS thanh mot file va tao blob URL de tai ve.'
+      justification: 'Gop cac doan HLS/DASH/MediaSource, chay ffmpeg.wasm va tao blob URL de tai ve.'
     }).catch(e => { if (!/single offscreen/i.test(String(e))) throw e; })
       .finally(() => { offscreenCreating = null; });
   }
@@ -138,6 +138,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.runtime.sendMessage({ type: 'offscreenFetch', url: msg.url, filename: (msg.filename || 'video') + '.' + ext, mime: probed.ctype || 'video/mp4',
           key: msg.key, tabId: sender.tab ? sender.tab.id : msg.tabId, frameId: sender.frameId, ruleId }).catch(() => {});
         sendResponse({ ok: true, via: 'fetch' });
+      } else if (msg.type === 'ensureOffscreen') {
+        await ensureOffscreen();
+        sendResponse({ ok: true });
+      } else if (msg.type === 'downloadDash') {
+        await ensureOffscreen();
+        const tabId = sender.tab ? sender.tab.id : msg.tabId;
+        const pageUrl = msg.pageUrl || (sender.tab && sender.tab.url);
+        const ruleId = await addRefererRule(msg.url, pageUrl);
+        chrome.runtime.sendMessage({ type: 'offscreenDash', url: msg.url, filename: msg.filename, key: msg.key, tabId, frameId: sender.frameId, ruleId }).catch(() => {});
+        sendResponse({ ok: true });
       } else if (msg.type === 'downloadHls') {
         await ensureOffscreen();
         const tabId = sender.tab ? sender.tab.id : msg.tabId;

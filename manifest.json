@@ -1,12 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Video Tải Về",
-  "version": "1.1.0",
-  "description": "Phát hiện video trên trang hiện tại và phủ nút Tải về lên mỗi video (hỗ trợ MP4/WebM trực tiếp và HLS .m3u8).",
+  "version": "2.0.0",
+  "description": "Phát hiện video trên trang hiện tại và phủ nút Tải về lên mỗi video (MP4/WebM, HLS, DASH, ghi MediaSource, ghép bằng ffmpeg.wasm).",
   "permissions": ["downloads", "webRequest", "webNavigation", "offscreen", "storage", "tabs", "activeTab", "declarativeNetRequest"],
   "host_permissions": ["<all_urls>"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "background": { "service_worker": "background.js" },
   "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": true,
+      "run_at": "document_start",
+      "world": "MAIN",
+      "js": ["inject.js"]
+    },
     {
       "matches": ["<all_urls>"],
       "all_frames": true,
