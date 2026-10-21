@@ -106,10 +106,10 @@
       const name = baseName(video, url);
       const res = await chrome.runtime.sendMessage({
         type: kind === 'hls' ? 'downloadHls' : 'download',
-        url, filename: name, ext: kind === 'hls' ? '' : (extOf(url) || 'mp4'), key: entry.key
+        url, filename: name, ext: kind === 'hls' ? '' : extOf(url), key: entry.key, pageUrl: location.href
       });
       if (res && res.error) throw new Error(res.error);
-      if (kind !== 'hls') { setState(entry, 'vtv-ok', 'Đã bắt đầu tải', 2500); entry.busy = false; }
+      if (kind !== 'hls' && !(res && res.via === 'fetch')) { setState(entry, 'vtv-ok', 'Đã bắt đầu tải', 2500); entry.busy = false; }
       // HLS: chờ tiến trình qua message 'hlsProgress'.
     } catch (e) {
       setState(entry, 'vtv-err', (e && e.message) || 'Lỗi', 5000);
@@ -123,7 +123,7 @@
         if (entry.key !== msg.key) continue;
         if (msg.error) { setState(entry, 'vtv-err', msg.error, 6000); entry.busy = false; }
         else if (msg.done) { setState(entry, 'vtv-ok', 'Đã tải xong', 3000); entry.busy = false; }
-        else setState(entry, 'vtv-busy', 'Đang tải ' + msg.pct + '%');
+        else setState(entry, 'vtv-busy', 'Đang tải ' + msg.pct + (typeof msg.pct === 'number' ? '%' : ''));
       }
     } else if (msg.type === 'listVideos') {
       const out = [];

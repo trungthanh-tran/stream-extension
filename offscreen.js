@@ -104,7 +104,7 @@ async function loadSegment(seg) {
 }
 
 async function downloadHls(job) {
-  const report = (extra) => chrome.runtime.sendMessage({ type: 'hlsProgress', key: job.key, tabId: job.tabId, frameId: job.frameId, ...extra }).catch(() => {});
+  const report = (extra) => chrome.runtime.sendMessage({ type: 'hlsProgress', key: job.key, tabId: job.tabId, frameId: job.frameId, ruleId: job.ruleId, ...extra }).catch(() => {});
   try {
     report({ pct: 0 });
     const { url, text } = await resolveMedia(job.url);
@@ -135,6 +135,36 @@ async function downloadHls(job) {
   }
 }
 
+
+// Tải một file trực tiếp bằng fetch (có Referer nhờ rule DNR ở background), báo % rồi lưu blob.
+async function downloadFile(job) {
+  const report = (extra) => chrome.runtime.sendMessage({ type: 'hlsProgress', key: job.key, tabId: job.tabId, frameId: job.frameId, ruleId: job.ruleId, ...extra }).catch(() => {});
+  try {
+    report({ pct: 0 });
+    const r = await fetch(job.url, { credentials: 'include' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const total = parseInt(r.headers.get('content-length') || '0', 10);
+    const reader = r.body.getReader();
+    const chunks = []; let got = 0, lastPct = -1;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value); got += value.byteLength;
+      const pct = total ? Math.floor(got * 100 / total) : Math.floor(got / 1048576);
+      if (pct !== lastPct) { lastPct = pct; report(total ? { pct } : { pct: pct + ' MB' }); }
+    }
+    const blob = new Blob(chunks, { type: job.mime || 'video/mp4' });
+    const blobUrl = URL.createObjectURL(blob);
+    const res = await chrome.runtime.sendMessage({ type: 'hlsBlobReady', blobUrl, filename: job.filename });
+    if (res && res.error) throw new Error(res.error);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 5 * 60 * 1000);
+    report({ done: true, pct: 100 });
+  } catch (e) {
+    report({ error: (e && e.message) || String(e) });
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'offscreenHls') downloadHls(msg);
+  else if (msg.type === 'offscreenFetch') downloadFile(msg);
 });

@@ -6,6 +6,7 @@ Extension Chrome (Manifest V3) phát hiện video trên trang hiện tại và p
 - Quét mọi thẻ `<video>` (kể cả trong iframe và shadow DOM), phủ nút "Tải về" góc trên trái video, kèm độ phân giải.
 - Video có `src` trực tiếp (mp4/webm/...): tải ngay qua Chrome Downloads.
 - Video dùng blob/MSE (hls.js, video.js...): background bắt URL media qua `webRequest`, ưu tiên file trực tiếp, sau đó HLS.
+- Server chặn hotlink (đòi Referer, ví dụ 8movie.com): tự chuyển sang tải bằng fetch kèm Referer của trang rồi lưu file, hiện % trên nút.
 - HLS (.m3u8): chọn luồng chất lượng cao nhất, tải các đoạn song song, giải mã AES-128 nếu có, gộp thành một file `.ts` hoặc `.mp4` (fMP4), hiện % tiến trình trên nút.
 - Popup (icon extension): liệt kê video trên trang + URL media bắt được qua mạng, bấm tải từng cái.
 

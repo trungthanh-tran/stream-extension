@@ -64,10 +64,10 @@ async function main() {
     (m.kind === 'hls' ? 'HLS · ' : '') + m.url,
     async () => {
       const name = nameFromUrl(m.url).replace(/\.[a-z0-9]{2,5}$/i, '') || tab.title || 'video';
-      const ext = (m.url.match(/\.([a-z0-9]{2,5})(\?|$)/i) || [])[1] || 'mp4';
+      const ext = (m.url.match(/\.([a-z0-9]{2,5})(\?|$)/i) || [])[1] || '';
       const r = await chrome.runtime.sendMessage(m.kind === 'hls'
-        ? { type: 'downloadHls', url: m.url, filename: name, tabId: tab.id, key: 'popup' }
-        : { type: 'download', url: m.url, filename: name, ext });
+        ? { type: 'downloadHls', url: m.url, filename: name, tabId: tab.id, key: 'popup', pageUrl: tab.url }
+        : { type: 'download', url: m.url, filename: name, ext, pageUrl: tab.url });
       if (r && r.error) throw new Error(r.error);
     }
   ));

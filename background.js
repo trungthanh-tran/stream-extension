@@ -54,6 +54,50 @@ async function getList(tabId) {
   return list;
 }
 
+
+// ---- Referer giả lập trang gốc cho request do extension/trình duyệt tải (chống chặn hotlink) ----
+let ruleSeq = 1000;
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+async function addRefererRule(targetUrl, pageUrl) {
+  if (!pageUrl || !/^https?:/.test(pageUrl)) return null;
+  let origin = '';
+  try { origin = new URL(targetUrl).origin; } catch (e) { return null; }
+  const id = ruleSeq++;
+  const pageOrigin = new URL(pageUrl).origin;
+  await chrome.declarativeNetRequest.updateSessionRules({
+    addRules: [{
+      id, priority: 1,
+      action: { type: 'modifyHeaders', requestHeaders: [
+        { header: 'Referer', operation: 'set', value: pageUrl },
+        { header: 'Origin', operation: 'set', value: pageOrigin }
+      ] },
+      condition: { regexFilter: '^' + escapeRegex(origin) + '/' }
+    }]
+  });
+  return id;
+}
+async function removeRule(id, delayMs) {
+  if (id == null) return;
+  setTimeout(() => chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [id] }).catch(() => {}), delayMs || 0);
+}
+
+const EXT_BY_TYPE = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-flv': 'flv', 'video/x-matroska': 'mkv', 'video/ogg': 'ogv', 'video/mp2t': 'ts', 'video/3gpp': '3gp', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3' };
+
+// Thăm dò URL trước khi tải: bảo đảm server trả về video, lấy đuôi file từ content-type.
+async function probe(url) {
+  let r;
+  try {
+    r = await fetch(url, { method: 'GET', headers: { Range: 'bytes=0-1' }, credentials: 'include', redirect: 'follow' });
+  } catch (e) {
+    throw new Error('Khong ket noi duoc toi server video');
+  }
+  const ctype = (r.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
+  try { await r.body?.cancel(); } catch (e) { /* ignore */ }
+  if (!r.ok && r.status !== 206) throw new Error('Server tu choi (HTTP ' + r.status + ')');
+  if (/^text\/html|application\/xhtml/.test(ctype)) throw new Error('Server tra ve trang HTML thay vi video (chan hotlink/can dang nhap)');
+  return { ctype, finalUrl: r.url || url };
+}
+
 let offscreenCreating = null;
 async function ensureOffscreen() {
   if (await chrome.offscreen.hasDocument()) return;
@@ -75,16 +119,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const tabId = msg.tabId != null ? msg.tabId : sender.tab && sender.tab.id;
         sendResponse({ list: await getList(tabId) });
       } else if (msg.type === 'download') {
-        const filename = (msg.filename || 'video') + '.' + (msg.ext || 'mp4');
-        const id = await chrome.downloads.download({ url: msg.url, filename, saveAs: false, conflictAction: 'uniquify' });
-        sendResponse({ ok: true, id });
+        const pageUrl = msg.pageUrl || (sender.tab && sender.tab.url);
+        // 1) Thử không Referer: nếu server chấp nhận thì để Chrome tải thẳng xuống đĩa (không tốn RAM).
+        let plain = null;
+        try { plain = await probe(msg.url); } catch (e) { plain = null; }
+        if (plain) {
+          const ext = msg.ext || EXT_BY_TYPE[plain.ctype] || 'mp4';
+          const id = await chrome.downloads.download({ url: msg.url, filename: (msg.filename || 'video') + '.' + ext, saveAs: false, conflictAction: 'uniquify' });
+          sendResponse({ ok: true, id, via: 'direct' });
+          return;
+        }
+        // 2) Server chặn hotlink: gắn Referer của trang, tải bằng fetch trong offscreen rồi lưu blob.
+        const ruleId = await addRefererRule(msg.url, pageUrl);
+        let probed;
+        try { probed = await probe(msg.url); } catch (e) { removeRule(ruleId, 0); throw e; }
+        const ext = msg.ext || EXT_BY_TYPE[probed.ctype] || 'mp4';
+        await ensureOffscreen();
+        chrome.runtime.sendMessage({ type: 'offscreenFetch', url: msg.url, filename: (msg.filename || 'video') + '.' + ext, mime: probed.ctype || 'video/mp4',
+          key: msg.key, tabId: sender.tab ? sender.tab.id : msg.tabId, frameId: sender.frameId, ruleId }).catch(() => {});
+        sendResponse({ ok: true, via: 'fetch' });
       } else if (msg.type === 'downloadHls') {
         await ensureOffscreen();
         const tabId = sender.tab ? sender.tab.id : msg.tabId;
         const frameId = sender.frameId;
-        chrome.runtime.sendMessage({ type: 'offscreenHls', url: msg.url, filename: msg.filename, key: msg.key, tabId, frameId }).catch(() => {});
+        const pageUrl = msg.pageUrl || (sender.tab && sender.tab.url);
+        const ruleId = await addRefererRule(msg.url, pageUrl);
+        chrome.runtime.sendMessage({ type: 'offscreenHls', url: msg.url, filename: msg.filename, key: msg.key, tabId, frameId, ruleId }).catch(() => {});
         sendResponse({ ok: true });
       } else if (msg.type === 'hlsProgress') {
+        if ((msg.done || msg.error) && msg.ruleId != null) removeRule(msg.ruleId, 5000);
         // Từ offscreen: chuyển về content script của tab/frame tương ứng và popup (nếu mở).
         if (msg.tabId != null) {
           const opts = msg.frameId != null ? { frameId: msg.frameId } : {};

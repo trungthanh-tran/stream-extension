@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Video Tải Về",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Phát hiện video trên trang hiện tại và phủ nút Tải về lên mỗi video (hỗ trợ MP4/WebM trực tiếp và HLS .m3u8).",
-  "permissions": ["downloads", "webRequest", "webNavigation", "offscreen", "storage", "tabs", "activeTab"],
+  "permissions": ["downloads", "webRequest", "webNavigation", "offscreen", "storage", "tabs", "activeTab", "declarativeNetRequest"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
