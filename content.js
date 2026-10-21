@@ -225,6 +225,9 @@
     } else if (msg.type === 'clickVideo') {
       for (const entry of entries.values()) if (entry.key === msg.key) onClick(entry);
       sendResponse({ ok: true });
+    } else if (msg.type === 'playAll') {
+      for (const entry of entries.values()) { try { entry.video.muted = true; entry.video.play().catch(() => {}); } catch (e) { /* ignore */ } }
+      sendResponse({ ok: true });
     } else if (msg.type === 'recVideo') {
       for (const entry of entries.values()) if (entry.key === msg.key) onRecClick(entry);
       sendResponse({ ok: true });

@@ -36,3 +36,29 @@
 .vtv-btn.vtv-rec { background: rgba(120, 20, 20, 0.85); }
 .vtv-btn.vtv-rec:hover { background: #c62828; }
 .vtv-btn.vtv-rec svg { fill: #ff5252; }
+
+/* Gợi ý tải cả bộ */
+.vtv-series {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
+  width: 320px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(20,20,20,.95); color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.5);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+.vtv-series-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.vtv-series-title { font-weight: 700; }
+.vtv-series-x { background: none; border: 0; color: #aaa; font-size: 18px; cursor: pointer; line-height: 1; padding: 0 4px; }
+.vtv-series-x:hover { color: #fff; }
+.vtv-series-row { display: flex; align-items: center; gap: 6px; }
+.vtv-series-row input { width: 52px; padding: 4px 6px; border: 1px solid #555; border-radius: 5px; background: #111; color: #fff; font-size: 13px; }
+.vtv-series-btn { margin-left: auto; border: 0; border-radius: 6px; background: #e53935; color: #fff; padding: 6px 12px; font-weight: 700; cursor: pointer; }
+.vtv-series-btn:hover { background: #ff5252; }
+.vtv-series-status { margin-top: 8px; color: #bbb; font-size: 12px; word-break: break-word; }
+.vtv-series-list { margin-top: 8px; max-height: 180px; overflow-y: auto; border-top: 1px solid #333; }
+.vtv-series-item { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid #2a2a2a; font-size: 12px; }
+.vtv-series-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vtv-series-item-st { color: #999; font-size: 11px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vtv-series-item-st.ok { color: #66bb6a; }
+.vtv-series-item-st.err { color: #ef5350; }
+.vtv-series-item-st.busy { color: #42a5f5; }
+.vtv-series-item-btn { border: 0; border-radius: 5px; background: #444; color: #fff; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+.vtv-series-item-btn:hover { background: #e53935; }
